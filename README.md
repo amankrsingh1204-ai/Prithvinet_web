@@ -1,4 +1,4 @@
-# PrithviNet12
+# Prithvinet_web
 
 PrithviNet12 is now organized as a structured full-stack project:
 
