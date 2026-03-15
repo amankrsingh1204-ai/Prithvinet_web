@@ -158,10 +158,11 @@ export const RegionalOfficerList: React.FC<RegionalOfficerListProps> = ({ office
 };
 
 interface RegionalOfficerManagementProps {
+  authToken: string;
   requesterEmail: string;
 }
 
-export const RegionalOfficerManagement: React.FC<RegionalOfficerManagementProps> = ({ requesterEmail }) => {
+export const RegionalOfficerManagement: React.FC<RegionalOfficerManagementProps> = ({ authToken, requesterEmail }) => {
   const [states, setStates] = useState<StateOption[]>([]);
   const [officers, setOfficers] = useState<RegionalOfficer[]>([]);
   const [loading, setLoading] = useState(false);
@@ -171,15 +172,15 @@ export const RegionalOfficerManagement: React.FC<RegionalOfficerManagementProps>
   const [success, setSuccess] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
-    if (!requesterEmail) return;
+    if (!authToken) return;
 
     setLoading(true);
     setError(null);
 
     try {
       const [stateList, officerList] = await Promise.all([
-        fetchStates(requesterEmail),
-        fetchRegionalOfficers(requesterEmail),
+        fetchStates(authToken, requesterEmail),
+        fetchRegionalOfficers(authToken, requesterEmail),
       ]);
       setStates(stateList);
       setOfficers(officerList);
@@ -188,23 +189,23 @@ export const RegionalOfficerManagement: React.FC<RegionalOfficerManagementProps>
     } finally {
       setLoading(false);
     }
-  }, [requesterEmail]);
+  }, [authToken, requesterEmail]);
 
   useEffect(() => {
     loadData();
   }, [loadData]);
 
   const handleAddOfficer = async (payload: { email: string; password: string; state_id: number }) => {
-    if (!requesterEmail) return;
+    if (!authToken) return;
 
     setSubmitting(true);
     setError(null);
     setSuccess(null);
 
     try {
-      await addRegionalOfficer(requesterEmail, payload);
+      await addRegionalOfficer(authToken, payload, requesterEmail);
       setSuccess('Regional officer added successfully.');
-      const updatedOfficers = await fetchRegionalOfficers(requesterEmail);
+      const updatedOfficers = await fetchRegionalOfficers(authToken, requesterEmail);
       setOfficers(updatedOfficers);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to add regional officer';
@@ -216,7 +217,7 @@ export const RegionalOfficerManagement: React.FC<RegionalOfficerManagementProps>
   };
 
   const handleDeleteOfficer = async (email: string) => {
-    if (!requesterEmail) return;
+    if (!authToken) return;
 
     const ok = window.confirm(`Delete regional officer ${email}?`);
     if (!ok) return;
@@ -226,9 +227,9 @@ export const RegionalOfficerManagement: React.FC<RegionalOfficerManagementProps>
     setSuccess(null);
 
     try {
-      await deleteRegionalOfficer(requesterEmail, email);
+      await deleteRegionalOfficer(authToken, email, requesterEmail);
       setSuccess('Regional officer deleted successfully.');
-      const updatedOfficers = await fetchRegionalOfficers(requesterEmail);
+      const updatedOfficers = await fetchRegionalOfficers(authToken, requesterEmail);
       setOfficers(updatedOfficers);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete regional officer');

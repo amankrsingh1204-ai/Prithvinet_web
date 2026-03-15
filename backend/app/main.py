@@ -8,7 +8,7 @@ import re
 from datetime import datetime, timezone
 from threading import Lock
 
-from fastapi import FastAPI, Header, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from .database import Base, engine
@@ -17,6 +17,13 @@ from .models import alert, iot_alerts, iot_model
 from .routes.alerts import router as alerts_router
 from .routes.iot import router as iot_router, ws_router as iot_ws_router
 from .schemas import AddMonitoringTeamRequest, AddRegionalOfficerRequest, ComplianceCopilotRequest, LoginRequest
+from .security import (
+    JWT_ACCESS_TOKEN_EXPIRE_MINUTES,
+    create_access_token,
+    get_current_user,
+    hash_password,
+    verify_password,
+)
 from .services.aqi_service import classify_aqi, fetch_aqi
 from .services.air_quality import fetch_openweather_air_quality
 from .services.ai_service import compliance_copilot as run_compliance_copilot
@@ -465,11 +472,18 @@ def get_cpcb_aqi_with_cache(city: str) -> dict | None:
     return payload
 
 
-def get_regional_officer_or_403(requester_email: str | None):
-    if not requester_email or not requester_email.strip():
-        raise HTTPException(status_code=401, detail="X-User-Email header is required")
+def get_regional_officer_or_403(current_user: dict):
+    token_email = str(current_user.get("email") or "").strip().lower()
+    token_role = str(current_user.get("role") or "").strip().upper()
 
-    normalized_email = requester_email.strip().lower()
+    if not token_email:
+        raise HTTPException(status_code=401, detail="Missing authenticated user")
+    if token_role != "REGIONAL_OFFICER":
+        raise HTTPException(
+            status_code=403,
+            detail="Only REGIONAL_OFFICER can manage monitoring teams",
+        )
+
     conn = get_connection()
     cur = conn.cursor()
 
@@ -480,7 +494,7 @@ def get_regional_officer_or_403(requester_email: str | None):
             FROM users
             WHERE LOWER(email)=LOWER(%s)
             """,
-            (normalized_email,),
+            (token_email,),
         )
         officer = cur.fetchone()
     finally:
@@ -502,11 +516,18 @@ def get_regional_officer_or_403(requester_email: str | None):
     return officer
 
 
-def get_super_admin_or_403(requester_email: str | None):
-    if not requester_email or not requester_email.strip():
-        raise HTTPException(status_code=401, detail="X-User-Email header is required")
+def get_super_admin_or_403(current_user: dict):
+    token_email = str(current_user.get("email") or "").strip().lower()
+    token_role = str(current_user.get("role") or "").strip().upper()
 
-    normalized_email = requester_email.strip().lower()
+    if not token_email:
+        raise HTTPException(status_code=401, detail="Missing authenticated user")
+    if token_role != "SUPER_ADMIN":
+        raise HTTPException(
+            status_code=403,
+            detail="Only SUPER_ADMIN can manage regional officers",
+        )
+
     conn = get_connection()
     cur = conn.cursor()
 
@@ -517,7 +538,7 @@ def get_super_admin_or_403(requester_email: str | None):
             FROM users
             WHERE LOWER(email)=LOWER(%s)
             """,
-            (normalized_email,),
+            (token_email,),
         )
         admin = cur.fetchone()
     finally:
@@ -1061,16 +1082,27 @@ def auth_login(payload: LoginRequest):
         # =========================
         cur.execute(
             """
-            SELECT email, role, state_id
+            SELECT email, role, state_id, password
             FROM users
-            WHERE email=%s AND password=%s
+            WHERE email=%s
             """,
-            (email, password),
+            (email,),
         )
 
         user = cur.fetchone()
 
-        if user:
+        if user and verify_password(password, str(user.get("password") or "")):
+
+            if not str(user.get("password") or "").startswith("scrypt$"):
+                cur.execute(
+                    """
+                    UPDATE users
+                    SET password=%s
+                    WHERE email=%s
+                    """,
+                    (hash_password(password), email),
+                )
+                conn.commit()
 
             # enforce role match
             if role and role != user["role"]:
@@ -1079,11 +1111,20 @@ def auth_login(payload: LoginRequest):
                     detail="Invalid role for this account"
                 )
 
+            access_token = create_access_token(
+                subject_email=str(user["email"]),
+                role=str(user["role"]),
+                extra_claims={"state_id": user.get("state_id")},
+            )
+
             return {
                 "success": True,
                 "email": user["email"],
                 "role": user["role"],
-                "state_id": user.get("state_id")
+                "state_id": user.get("state_id"),
+                "access_token": access_token,
+                "token_type": "bearer",
+                "expires_in": JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60,
             }
 
         # =========================
@@ -1091,16 +1132,27 @@ def auth_login(payload: LoginRequest):
         # =========================
         cur.execute(
             """
-            SELECT industry_email, district_name, zone
+            SELECT industry_email, district_name, zone, password
             FROM industries
-            WHERE industry_email=%s AND password=%s
+            WHERE industry_email=%s
             """,
-            (email, password),
+            (email,),
         )
 
         industry = cur.fetchone()
 
-        if industry:
+        if industry and verify_password(password, str(industry.get("password") or "")):
+
+            if not str(industry.get("password") or "").startswith("scrypt$"):
+                cur.execute(
+                    """
+                    UPDATE industries
+                    SET password=%s
+                    WHERE industry_email=%s
+                    """,
+                    (hash_password(password), email),
+                )
+                conn.commit()
 
             if role and role != "INDUSTRY_USER":
                 raise HTTPException(
@@ -1108,12 +1160,24 @@ def auth_login(payload: LoginRequest):
                     detail="Invalid role for this account"
                 )
 
+            access_token = create_access_token(
+                subject_email=str(industry["industry_email"]),
+                role="INDUSTRY_USER",
+                extra_claims={
+                    "district": industry.get("district_name"),
+                    "zone": industry.get("zone"),
+                },
+            )
+
             return {
                 "success": True,
                 "email": industry["industry_email"],
                 "role": "INDUSTRY_USER",
                 "district": industry["district_name"],
-                "zone": industry["zone"]
+                "zone": industry["zone"],
+                "access_token": access_token,
+                "token_type": "bearer",
+                "expires_in": JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60,
             }
 
     finally:
@@ -1129,9 +1193,9 @@ def auth_login(payload: LoginRequest):
 @app.post("/api/regional/add-monitoring-team")
 def add_monitoring_team(
     payload: AddMonitoringTeamRequest,
-    x_user_email: str | None = Header(default=None, alias="X-User-Email"),
+    current_user: dict = Depends(get_current_user),
 ):
-    officer = get_regional_officer_or_403(x_user_email)
+    officer = get_regional_officer_or_403(current_user)
     team_email = payload.email.strip().lower()
     district_name = payload.district_name.strip()
     team_zone = payload.team_zone.strip().lower()
@@ -1157,7 +1221,7 @@ def add_monitoring_team(
             VALUES (%s, 'MONITORING_TEAM', %s, %s, %s, %s)
             RETURNING id, email, state_id, district_name, team_zone
             """,
-            (team_email, payload.password, officer["state_id"], district_name, team_zone),
+            (team_email, hash_password(payload.password), officer["state_id"], district_name, team_zone),
         )
         created = cur.fetchone()
         conn.commit()
@@ -1170,9 +1234,9 @@ def add_monitoring_team(
 @app.delete("/api/regional/delete-monitoring-team/{email}")
 def delete_monitoring_team(
     email: str,
-    x_user_email: str | None = Header(default=None, alias="X-User-Email"),
+    current_user: dict = Depends(get_current_user),
 ):
-    officer = get_regional_officer_or_403(x_user_email)
+    officer = get_regional_officer_or_403(current_user)
     team_email = email.strip().lower()
 
     conn = get_connection()
@@ -1209,9 +1273,9 @@ def delete_monitoring_team(
 
 @app.get("/api/regional/monitoring-teams")
 def get_monitoring_teams(
-    x_user_email: str | None = Header(default=None, alias="X-User-Email"),
+    current_user: dict = Depends(get_current_user),
 ):
-    officer = get_regional_officer_or_403(x_user_email)
+    officer = get_regional_officer_or_403(current_user)
     return db_rows(
         """
         SELECT id, email, state_id, district_name, team_zone
@@ -1225,9 +1289,9 @@ def get_monitoring_teams(
 
 @app.get("/api/admin/states")
 def get_states(
-    x_user_email: str | None = Header(default=None, alias="X-User-Email"),
+    current_user: dict = Depends(get_current_user),
 ):
-    get_super_admin_or_403(x_user_email)
+    get_super_admin_or_403(current_user)
     return db_rows(
         """
         SELECT id, state_name
@@ -1240,9 +1304,9 @@ def get_states(
 @app.post("/api/admin/add-regional-officer")
 def add_regional_officer(
     payload: AddRegionalOfficerRequest,
-    x_user_email: str | None = Header(default=None, alias="X-User-Email"),
+    current_user: dict = Depends(get_current_user),
 ):
-    get_super_admin_or_403(x_user_email)
+    get_super_admin_or_403(current_user)
     officer_email = payload.email.strip().lower()
 
     conn = get_connection()
@@ -1277,7 +1341,7 @@ def add_regional_officer(
             VALUES (%s, 'REGIONAL_OFFICER', %s, %s, NULL, NULL)
             RETURNING id, email, state_id
             """,
-            (officer_email, payload.password, payload.state_id),
+            (officer_email, hash_password(payload.password), payload.state_id),
         )
         created = cur.fetchone()
         conn.commit()
@@ -1290,9 +1354,9 @@ def add_regional_officer(
 @app.delete("/api/admin/delete-regional-officer/{email}")
 def delete_regional_officer(
     email: str,
-    x_user_email: str | None = Header(default=None, alias="X-User-Email"),
+    current_user: dict = Depends(get_current_user),
 ):
-    get_super_admin_or_403(x_user_email)
+    get_super_admin_or_403(current_user)
     officer_email = email.strip().lower()
 
     conn = get_connection()
@@ -1324,9 +1388,9 @@ def delete_regional_officer(
 
 @app.get("/api/admin/regional-officers")
 def get_regional_officers(
-    x_user_email: str | None = Header(default=None, alias="X-User-Email"),
+    current_user: dict = Depends(get_current_user),
 ):
-    get_super_admin_or_403(x_user_email)
+    get_super_admin_or_403(current_user)
     return db_rows(
         """
         SELECT users.id, users.email, users.state_id, states.state_name

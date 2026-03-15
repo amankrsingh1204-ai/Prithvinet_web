@@ -22,10 +22,16 @@ export interface AddRegionalOfficerPayload {
   state_id: number;
 }
 
-const buildHeaders = (requesterEmail: string, hasBody = false): Record<string, string> => {
-  const headers: Record<string, string> = {
-    'X-User-Email': requesterEmail,
-  };
+const buildHeaders = (authToken: string, requesterEmail = '', hasBody = false): Record<string, string> => {
+  const headers: Record<string, string> = {};
+
+  if (authToken) {
+    headers.Authorization = `Bearer ${authToken}`;
+  }
+
+  if (requesterEmail) {
+    headers['X-User-Email'] = requesterEmail;
+  }
 
   if (hasBody) {
     headers['Content-Type'] = 'application/json';
@@ -34,9 +40,9 @@ const buildHeaders = (requesterEmail: string, hasBody = false): Record<string, s
   return headers;
 };
 
-export async function fetchStates(requesterEmail: string): Promise<StateOption[]> {
+export async function fetchStates(authToken: string, requesterEmail = ''): Promise<StateOption[]> {
   const response = await fetch(apiUrl('/api/admin/states'), {
-    headers: buildHeaders(requesterEmail),
+    headers: buildHeaders(authToken, requesterEmail),
   });
 
   if (!response.ok) {
@@ -48,9 +54,9 @@ export async function fetchStates(requesterEmail: string): Promise<StateOption[]
   return Array.isArray(data) ? data : [];
 }
 
-export async function fetchRegionalOfficers(requesterEmail: string): Promise<RegionalOfficer[]> {
+export async function fetchRegionalOfficers(authToken: string, requesterEmail = ''): Promise<RegionalOfficer[]> {
   const response = await fetch(apiUrl('/api/admin/regional-officers'), {
-    headers: buildHeaders(requesterEmail),
+    headers: buildHeaders(authToken, requesterEmail),
   });
 
   if (!response.ok) {
@@ -62,10 +68,10 @@ export async function fetchRegionalOfficers(requesterEmail: string): Promise<Reg
   return Array.isArray(data) ? data : [];
 }
 
-export async function addRegionalOfficer(requesterEmail: string, payload: AddRegionalOfficerPayload): Promise<void> {
+export async function addRegionalOfficer(authToken: string, payload: AddRegionalOfficerPayload, requesterEmail = ''): Promise<void> {
   const response = await fetch(apiUrl('/api/admin/add-regional-officer'), {
     method: 'POST',
-    headers: buildHeaders(requesterEmail, true),
+    headers: buildHeaders(authToken, requesterEmail, true),
     body: JSON.stringify(payload),
   });
 
@@ -75,10 +81,10 @@ export async function addRegionalOfficer(requesterEmail: string, payload: AddReg
   }
 }
 
-export async function deleteRegionalOfficer(requesterEmail: string, email: string): Promise<void> {
+export async function deleteRegionalOfficer(authToken: string, email: string, requesterEmail = ''): Promise<void> {
   const response = await fetch(apiUrl(`/api/admin/delete-regional-officer/${encodeURIComponent(email)}`), {
     method: 'DELETE',
-    headers: buildHeaders(requesterEmail),
+    headers: buildHeaders(authToken, requesterEmail),
   });
 
   if (!response.ok) {

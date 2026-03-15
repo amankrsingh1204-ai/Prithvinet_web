@@ -5,3 +5,4 @@ psycopg2-binary==2.9.10
 google-genai==1.29.0
 httpx==0.28.1
 SQLAlchemy==2.0.36
+PyJWT==2.9.0

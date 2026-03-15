@@ -96,6 +96,8 @@ copy .env.example .env
 - `GEMINI_API_KEY`
 - `DATA_GOV_IN_API_KEY` (optional fallback is present)
 - `DATABASE_URL=postgresql://postgres:aman1204@localhost:5432/prithvinet`
+- `JWT_SECRET_KEY` (required for secure token signing)
+- `JWT_ACCESS_TOKEN_EXPIRE_MINUTES=60` (optional)
 
 6. Create PostgreSQL database:
 
@@ -173,6 +175,13 @@ After backend starts, test:
 
 - `GET http://127.0.0.1:8000/health`
 - `GET http://127.0.0.1:8000/api/sensors`
+
+## Authentication
+
+- Login endpoint: `POST /api/auth/login`
+- Successful login returns `access_token`, `token_type`, and `expires_in`
+- Protected admin/regional endpoints now require:
+  - `Authorization: Bearer <access_token>`
 
 ## Next Improvements (Optional)
 

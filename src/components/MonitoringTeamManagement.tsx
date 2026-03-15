@@ -165,10 +165,11 @@ export const MonitoringTeamList: React.FC<MonitoringTeamListProps> = ({ teams, d
 };
 
 interface MonitoringTeamManagementProps {
+  authToken: string;
   requesterEmail: string;
 }
 
-export const MonitoringTeamManagement: React.FC<MonitoringTeamManagementProps> = ({ requesterEmail }) => {
+export const MonitoringTeamManagement: React.FC<MonitoringTeamManagementProps> = ({ authToken, requesterEmail }) => {
   const [teams, setTeams] = useState<MonitoringTeam[]>([]);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -177,13 +178,14 @@ export const MonitoringTeamManagement: React.FC<MonitoringTeamManagementProps> =
   const [success, setSuccess] = useState<string | null>(null);
 
   const fetchTeams = useCallback(async () => {
-    if (!requesterEmail) return;
+    if (!authToken) return;
     setLoading(true);
     setError(null);
 
     try {
       const response = await fetch(apiUrl('/api/regional/monitoring-teams'), {
         headers: {
+          Authorization: `Bearer ${authToken}`,
           'X-User-Email': requesterEmail,
         },
       });
@@ -200,14 +202,14 @@ export const MonitoringTeamManagement: React.FC<MonitoringTeamManagementProps> =
     } finally {
       setLoading(false);
     }
-  }, [requesterEmail]);
+  }, [authToken, requesterEmail]);
 
   useEffect(() => {
     fetchTeams();
   }, [fetchTeams]);
 
   const addTeam = async (payload: AddMonitoringTeamPayload) => {
-    if (!requesterEmail) return;
+    if (!authToken) return;
     setSubmitting(true);
     setError(null);
     setSuccess(null);
@@ -217,6 +219,7 @@ export const MonitoringTeamManagement: React.FC<MonitoringTeamManagementProps> =
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          Authorization: `Bearer ${authToken}`,
           'X-User-Email': requesterEmail,
         },
         body: JSON.stringify(payload),
@@ -239,7 +242,7 @@ export const MonitoringTeamManagement: React.FC<MonitoringTeamManagementProps> =
   };
 
   const deleteTeam = async (email: string) => {
-    if (!requesterEmail) return;
+    if (!authToken) return;
 
     const ok = window.confirm(`Delete monitoring team ${email}?`);
     if (!ok) return;
@@ -252,6 +255,7 @@ export const MonitoringTeamManagement: React.FC<MonitoringTeamManagementProps> =
       const response = await fetch(apiUrl(`/api/regional/delete-monitoring-team/${encodeURIComponent(email)}`), {
         method: 'DELETE',
         headers: {
+          Authorization: `Bearer ${authToken}`,
           'X-User-Email': requesterEmail,
         },
       });

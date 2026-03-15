@@ -1464,6 +1464,8 @@ const RealMap = ({
 };
 
 export default function App() {
+  const AUTH_SESSION_KEY = 'prithvinet_auth_session';
+
   const getInitialTheme = (): 'dark' | 'light' => {
     if (typeof window === 'undefined') return 'dark';
     const savedTheme = window.localStorage.getItem('theme');
@@ -1545,9 +1547,38 @@ export default function App() {
   const [simulationLoading, setSimulationLoading] = useState(false);
   const [simulationError, setSimulationError] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState<{ email: string; role: UserRole } | null>(null);
+  const [authToken, setAuthToken] = useState('');
 
   useEffect(() => {
     installGlobalApiDebugLogging('main-app');
+  }, []);
+
+  useEffect(() => {
+    try {
+      const rawSession = window.localStorage.getItem(AUTH_SESSION_KEY);
+      if (!rawSession) return;
+
+      const parsed = JSON.parse(rawSession) as {
+        email?: string;
+        role?: UserRole;
+        token?: string;
+      };
+
+      if (!parsed?.email || !parsed?.role || !parsed?.token) {
+        window.localStorage.removeItem(AUTH_SESSION_KEY);
+        return;
+      }
+
+      setCurrentUser({
+        email: parsed.email.trim().toLowerCase(),
+        role: parsed.role,
+      });
+      setUserRole(parsed.role);
+      setAuthToken(parsed.token);
+      setIsLoggedIn(true);
+    } catch {
+      window.localStorage.removeItem(AUTH_SESSION_KEY);
+    }
   }, []);
 
   const districtStateMap: Record<string, string> = {
@@ -3200,7 +3231,7 @@ export default function App() {
         return (
           <div className="space-y-6">
             <h2 className="text-2xl font-bold text-white tracking-tight">System Management</h2>
-            <RegionalOfficerManagement requesterEmail={currentUser?.email || ''} />
+            <RegionalOfficerManagement authToken={authToken} requesterEmail={currentUser?.email || ''} />
           </div>
         );
       case 'master-data':
@@ -3279,7 +3310,7 @@ export default function App() {
                   ))}
                 </div>
               </div>
-              <MonitoringTeamManagement requesterEmail={currentUser?.email || ''} />
+              <MonitoringTeamManagement authToken={authToken} requesterEmail={currentUser?.email || ''} />
             </div>
           </div>
         );
@@ -5194,6 +5225,8 @@ export default function App() {
 
     try {
       if (userRole === 'Citizen') {
+        setAuthToken('');
+        window.localStorage.removeItem(AUTH_SESSION_KEY);
         setCurrentUser({
           email: 'citizen@public.portal',
           role: 'Citizen',
@@ -5220,9 +5253,26 @@ export default function App() {
       }
 
       const payload = await response.json();
+      const accessToken = String(payload?.access_token || '').trim();
+
+      if (!accessToken) {
+        throw new Error('Login succeeded but no access token was returned.');
+      }
+
+      const normalizedEmail = String(payload?.email || loginEmail).trim().toLowerCase();
+
+      setAuthToken(accessToken);
+      window.localStorage.setItem(
+        AUTH_SESSION_KEY,
+        JSON.stringify({
+          email: normalizedEmail,
+          role: userRole,
+          token: accessToken,
+        }),
+      );
 
       setCurrentUser({
-        email: String(payload?.email || loginEmail).trim().toLowerCase(),
+        email: normalizedEmail,
         role: userRole
       });
       setIsLoggedIn(true);
@@ -5925,6 +5975,9 @@ export default function App() {
 
                         <button
                           onClick={() => {
+                            setAuthToken('');
+                            setCurrentUser(null);
+                            window.localStorage.removeItem(AUTH_SESSION_KEY);
                             setIsLoggedIn(false);
                             setShowProfileMenu(false);
                           }}
@@ -5936,6 +5989,9 @@ export default function App() {
 
                         <button
                           onClick={() => {
+                            setAuthToken('');
+                            setCurrentUser(null);
+                            window.localStorage.removeItem(AUTH_SESSION_KEY);
                             setIsLoggedIn(false);
                             setShowProfileMenu(false);
                           }}
