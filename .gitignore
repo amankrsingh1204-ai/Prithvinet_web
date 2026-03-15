@@ -1,0 +1,15 @@
+node_modules/
+build/
+dist/
+coverage/
+.DS_Store
+*.log
+.venv/
+prithvinet.db
+backend/uvicorn.out.log
+backend/uvicorn.err.log
+.env*
+!.env.example
+backend/.venv/
+backend/__pycache__/
+backend/**/*.pyc

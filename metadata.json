@@ -1,0 +1,7 @@
+{
+  "name": "PrithviNet - CECB Environmental Monitoring",
+  "description": "Smart environmental monitoring platform for the Chhattisgarh Environment Conservation Board (CECB) featuring real-time IoT streams, AI forecasting, and compliance monitoring.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
